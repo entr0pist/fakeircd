@@ -1,0 +1,4 @@
+*.pyc
+*.swp
+patch
+data/fingerprints.json

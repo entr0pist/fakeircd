@@ -1,0 +1,24 @@
+{
+    "torrc_prefix": "fakeirc", 
+    "motd": "ircd.motd", 
+    "server_name": "fake.irc", 
+    "spoof_address": "fake.irc", 
+    "spoof_user": "user", 
+    "ping_freq": 45, 
+    "default_address": "127.0.0.1", 
+    "spoof_real": "realname", 
+    "chan_deny": [
+        "#!.*", 
+        "#@.*"
+    ], 
+    "network_name": "Fake", 
+    "server_version": "Fake IRC v1.0", 
+    "listen": [
+        {
+            "oper": 1,
+            "bind_port": 6697, 
+            "ssl": 1, 
+            "bind_address": "127.0.0.1"
+        }
+    ]
+}
