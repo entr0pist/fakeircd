@@ -96,8 +96,14 @@ class Server:
 
         if self.ssl:
             try:
-                csock = ssl.wrap_socket(csock, server_side=True, certfile="ircd.pem",
-                    keyfile="ircd.pem", do_handshake_on_connect=False)
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                ctx.set_ciphers('ECDHE-ECDSA-AES256-GCM-SHA384')
+                ctx.load_dh_params('dh4096')
+                ctx.set_ecdh_curve('secp521r1')
+                ctx.options &= ssl.OP_SINGLE_ECDH_USE
+                ctx.load_cert_chain('ircd.pem')
+                csock = ctx.wrap_socket(csock, server_side=True, 
+                    do_handshake_on_connect=False)
             except:
                 csock.close()
                 return
