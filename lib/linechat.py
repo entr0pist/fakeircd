@@ -98,7 +98,6 @@ class Server:
             try:
                 ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
                 ctx.set_ciphers('ECDHE-ECDSA-AES256-GCM-SHA384')
-                ctx.load_dh_params('dh4096')
                 ctx.set_ecdh_curve('secp521r1')
                 ctx.options &= ssl.OP_SINGLE_ECDH_USE
                 ctx.load_cert_chain('ircd.pem')
@@ -139,6 +138,7 @@ class LineClient:
                 self.handshook = True
                 self.call('handle_connect')
             except ssl.SSLError as err:
+                print err
                 if err.args[0] == ssl.SSL_ERROR_WANT_READ:
                     pass
                 else:
