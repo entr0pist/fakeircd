@@ -1,0 +1,144 @@
+from modules.Module import Module
+from cryptography.hazmat.primitives.ciphers import Cipher
+from cryptography.hazmat.primitives.ciphers.modes import CBC
+from cryptography.hazmat.primitives.ciphers.algorithms import Blowfish
+from cryptography.hazmat.backends import default_backend
+import re
+import os
+import hashlib
+
+bend = default_backend()
+
+p  = '++ECLiPSE+is+proud+to+present+latest+FiSH+release+featuring+' \
+     'even+more+security+for+you+++shouts+go+out+to+TMG+for+helping+' \
+     'to+generate+this+cool+sophie+germain+prime+number++++/C32L'
+
+
+def bytes2int(b):
+    return int(b.encode('hex'), 16)
+
+def int2bytes(i):
+    val = '%x' % i
+    val = ('0' * (len(val) % 2)) + val
+    return val.decode('hex')
+
+def b64encode(data):
+    data = re.sub('[\n=]', '', data.encode('base64'))
+    if not len(data) % 4:
+        data += 'A'
+    return data
+
+def b64decode(data):
+    if len(data) % 4 == 1 and data[-1] == 'A':
+        data = data[:-1]
+    return (data + ('=' * (len(data) % 4))).decode('base64')
+
+p = bytes2int(p.decode('base64'))
+
+class BlowfishSession:
+    def __init__(self, alice, bob):
+        self.alice_nick = alice
+        self.bob_nick = bob
+
+        def gen_key():
+            priv = bytes2int(os.urandom(135))
+            return {
+                'private': priv,
+                'public': pow(2, priv, p)
+            }
+
+        self.alice_key = gen_key()
+        self.bob_key = gen_key()
+
+    def set_key(self, nick, key):
+        keys, other_key = self.get_keys(nick)
+
+        key = bytes2int(b64decode(key))
+
+        shared = pow(key, keys['private'], p)
+        shared = hashlib.sha256(int2bytes(shared)).digest()
+        keys['shared'] = b64encode(shared)
+
+        with open('data/log', 'a') as log:
+            log.write('Key with %s: %s\n' % (nick, keys['shared']))
+
+        return b64encode(int2bytes(other_key['public']))
+
+    def get_keys(self, nick=None):
+        if nick == self.alice_nick:
+            return self.alice_key, self.bob_key
+        else:
+            return self.bob_key, self.alice_key
+
+    def msg_received(self, nick, msg):
+        msg = msg.decode('base64')
+        keys, other_key = self.get_keys(nick)
+
+        decrypt = Cipher(Blowfish(keys['shared']), CBC(msg[:8]), backend=bend).decryptor()
+        msg = decrypt.update(msg[8:])
+
+        other_nick = self.alice_nick if nick != self.alice_nick else self.bob_nick
+
+        with open('data/log', 'a') as log:
+            try:
+                log.write('<%s -> %s> %s\n' % (nick, other_nick, msg))
+            except UnicodeDecodeError:
+                pass
+
+        iv = os.urandom(8)
+        encrypt = Cipher(Blowfish(other_key['shared']), CBC(iv), backend=bend).encryptor()
+        return (iv + encrypt.update(msg)).encode('base64').replace('\n', '')
+
+class Decrypt(Module):
+    def module_load(self):
+        self.dh1080_re = re.compile(r'^DH1080_(?P<c>INIT|FINISH) (?P<pk>[a-zA-Z0-9+/]+)$')
+        self.msg_re = re.compile(r'^\+OK \*(?P<msg>[a-zA-Z0-9+/=]+)$')
+        self.register_first('user_notice', self.intercept_keyx)
+        self.register_first('user_privmsg', self.intercept_msg)
+        self.sessions = {}
+
+    def intercept_keyx(self, user, nick, msg):
+        dh1080 = self.dh1080_re.match(msg)
+        if not dh1080:
+            return
+
+        u = self.trigger('find_user', nick)
+        if not u:
+            return
+
+        key = self.make_key(nick, user.info['nick'])
+        if dh1080.group('c') == 'INIT':
+            self.sessions[key] = BlowfishSession(user.info['nick'], nick)
+
+        pk = self.sessions[key].set_key(user.info['nick'], dh1080.group('pk'))
+        if not pk:
+            return
+
+        self.trigger('send_to_one', u, ':%s NOTICE %s :DH1080_%s %s' % (user.umask(), nick, 
+            dh1080.group('c'), pk))
+        return True
+
+    def intercept_msg(self, user, nick, msg):
+        msg = self.msg_re.match(msg)
+        if not msg:
+            return
+        msg = msg.group('msg')
+
+        u = self.trigger('find_user', nick)
+        if not u:
+            return
+
+        key = self.make_key(nick, user.info['nick'])
+        if key not in self.sessions:
+            return
+
+        reencrypted = self.sessions[key].msg_received(user.info['nick'], msg)
+        if not reencrypted:
+            return
+
+        self.trigger('send_to_one', u, ':%s PRIVMSG %s :+OK *%s' % (user.umask(),
+            u.info['nick'], reencrypted))
+        return True
+
+    def make_key(self, nick, other_nick):
+        return tuple(sorted(( nick, other_nick )))
